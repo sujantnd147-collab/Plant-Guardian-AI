@@ -1,64 +1,92 @@
-import json
-from pathlib import Path
-import numpy as np
 import streamlit as st
 from PIL import Image
+from pathlib import Path
 
-from src.predictor import load_model, predict_image
-from src.care import care_advice
-
-st.set_page_config(page_title="Plant Guardian AI", page_icon="🌱", layout="wide")
+st.set_page_config(page_title="Plant Guardian AI", page_icon="🌱", layout="centered")
 
 st.markdown("""
 <style>
-.hero {padding: 1.5rem 1.8rem; border-radius: 18px; background: linear-gradient(120deg,#e8f5e9,#f1f8e9);}
-.hero h1 {color:#1b5e20; margin-bottom:.2rem;}
-.small-muted {color:#55715a;}
-.card {padding:1rem; border:1px solid #dce9dc; border-radius:14px; background:#fbfffb;}
+.main {max-width: 900px; padding-top: 1.5rem;}
+.hero {padding: 1.3rem; border-radius: 16px; background: #eaf8ed;}
+.hero h1 {color: #176b38; margin-bottom: .25rem;}
+div.stButton > button {width:100%; border-radius:10px;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="hero"><h1>🌱 Plant Guardian AI</h1><p class="small-muted">AI-assisted plant leaf screening and practical care guidance</p></div>', unsafe_allow_html=True)
-st.write("Upload a clear leaf photo to receive a model prediction and suggested next steps.")
+st.markdown(
+    '<div class="hero"><h1>🌱 Plant Guardian AI</h1>'
+    '<p>Smart plant-health checking prototype</p></div>',
+    unsafe_allow_html=True,
+)
+st.write("Upload a clear photo of a plant leaf to get started.")
 
-with st.sidebar:
-    st.header("About this project")
-    st.write("A computer-vision demo built with TensorFlow and Streamlit.")
-    st.info("Predictions are screening suggestions, not a confirmed diagnosis. Image quality, lighting, and unseen diseases can affect results.")
-    st.caption("For best results, photograph one leaf in natural light against a plain background.")
+MODEL_PATH = Path("plant_disease_model.keras")
+LABELS_PATH = Path("class_names.txt")
 
-uploaded = st.file_uploader("Upload a plant leaf image", type=["jpg", "jpeg", "png"])
-model_path = Path("models/plant_guardian_mobilenet.keras")
-labels_path = Path("models/class_names.json")
+uploaded = st.file_uploader("Choose a leaf photo", type=["jpg", "jpeg", "png"])
 
 if uploaded:
     image = Image.open(uploaded).convert("RGB")
-    left, right = st.columns([1, 1])
-    with left:
-        st.image(image, caption="Uploaded leaf image", use_container_width=True)
-    with right:
-        st.subheader("Analysis")
-        if not model_path.exists() or not labels_path.exists():
-            st.warning("The trained model is not installed yet. Follow the README to download the dataset and train the model first.")
-            st.code("python train.py --data_dir data/PlantVillage")
-        else:
+    st.image(image, caption="Your uploaded leaf photo", use_container_width=True)
+
+    if st.button("Analyse plant"):
+        if MODEL_PATH.exists() and LABELS_PATH.exists():
             try:
-                model = load_model(str(model_path))
-                labels = json.loads(labels_path.read_text())
-                label, confidence, top3 = predict_image(model, image, labels)
-                st.metric("Model prediction", label.replace("___", " — ").replace("_", " "))
-                st.metric("Prediction score", f"{confidence:.1%}")
-                st.caption("The score is the model's confidence for its selected class, not a guarantee of correctness.")
-                st.subheader("Other possible classes")
-                for name, score in top3[1:]:
-                    st.write(f"- {name.replace('___', ' — ').replace('_', ' ')}: {score:.1%}")
-                st.subheader("Suggested next steps")
-                for item in care_advice(label):
-                    st.write(f"• {item}")
-            except Exception as exc:
-                st.error(f"Could not analyse this image: {exc}")
+                import numpy as np
+                from tensorflow.keras.models import load_model
+
+                @st.cache_resource
+                def load_plant_model(path):
+                    return load_model(path)
+
+                model = load_plant_model(str(MODEL_PATH))
+                labels = [
+                    line.strip()
+                    for line in LABELS_PATH.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                ]
+                resized = image.resize((224, 224))
+                pixels = np.asarray(resized, dtype="float32") / 255.0
+                probabilities = model.predict(np.expand_dims(pixels, 0), verbose=0)[0]
+                best_index = int(np.argmax(probabilities))
+
+                if best_index >= len(labels):
+                    st.error("Model labels do not match the model output. Please check class_names.txt.")
+                else:
+                    st.success(f"Model prediction: **{labels[best_index]}**")
+                    st.write(f"Model confidence: **{float(probabilities[best_index]) * 100:.1f}%**")
+                    st.warning(
+                        "This is an AI estimate, not a confirmed diagnosis. "
+                        "Check the plant carefully and consult an agricultural expert for important decisions."
+                    )
+            except Exception as error:
+                st.error("The model could not be loaded. Check that the model file and dependencies are valid.")
+                st.caption(f"Technical detail: {error}")
+        else:
+            st.info(
+                "Photo uploaded successfully. The trained disease-detection model has not been added yet, "
+                "so this app will not guess a disease."
+            )
+            st.markdown(
+                "**To enable AI predictions:** add `plant_disease_model.keras` and "
+                "`class_names.txt` to the root of this GitHub repository. See README.md."
+            )
 
 st.divider()
-st.subheader("How to use the result")
-st.write("Compare the prediction with the whole plant, inspect multiple leaves, and seek local agricultural guidance if symptoms are spreading or the plant is valuable.")
-st.caption("Plant Guardian AI • Educational prototype")
+st.subheader("🌿 General plant-care checklist")
+col1, col2 = st.columns(2)
+with col1:
+    st.markdown("**💧 Watering**")
+    st.write("Check soil moisture before watering. Avoid leaving soil waterlogged.")
+    st.markdown("**☀️ Light**")
+    st.write("Provide light suitable for the plant species and avoid sudden changes.")
+with col2:
+    st.markdown("**🍃 Leaf checks**")
+    st.write("Check both sides of leaves for spots, pests, or unusual colour changes.")
+    st.markdown("**🧹 Cleanliness**")
+    st.write("Remove fallen leaves and keep tools clean.")
+
+st.caption(
+    "Educational prototype only. Photo-based predictions may be wrong and are not a substitute "
+    "for advice from a local agricultural expert."
+)
