@@ -1,0 +1,5 @@
+"""Shared configuration. Keep secrets in .streamlit/secrets.toml, never in source code."""
+APP_NAME = "Plant Guardian AI"
+DEFAULT_LANGUAGE = "English"
+WEATHER_API_KEY_NAME = "OPENWEATHER_API_KEY"
+WEATHER_BASE_URL = "https://api.openweathermap.org/data/2.5/weather"
